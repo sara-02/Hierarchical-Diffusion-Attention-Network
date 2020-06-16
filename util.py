@@ -12,6 +12,7 @@ def read_nodes(filename):
         for line in f:
             line = line.split(':')[0]
             data.extend(line.replace('\n', '').split(','))
+#         print("-1 in DATA----- {}".format('-1' in data))
         return data
 
 def read_graph(filename, node_to_id):
@@ -31,8 +32,9 @@ def read_graph(filename, node_to_id):
 
 def build_vocab(filename):
     data = read_nodes(filename)
-
+    
     counter = Counter(data)
+#     print("COUNTER----",counter)
     count_pairs = sorted(counter.items(), key=lambda x: -x[1])
 
     nodes, _ = list(zip(*count_pairs))
@@ -47,7 +49,8 @@ def build_vocab(filename):
     # for node in nodes:
     #     node_to_id[node] = index
     #     index += 1 # index begins from 1, 0 represents padding mark
-
+    print("NODES TO ID-----",len(node_to_id))
+#     print(nodes)
     return nodes, node_to_id
 
 def _file_to_node_ids(filename, node_to_id):
@@ -64,7 +67,7 @@ def _file_to_node_ids(filename, node_to_id):
     total_num = np.sum(len_list)
     return (data, len_list, size, total_num)
 
-def _file_to_node_ids_withtime(filename, node_to_id):
+def _file_to_node_ids_withtime(filename, node_to_id,where="test"):
     cas_data = []
     time_data = []
     len_list = []
@@ -74,7 +77,9 @@ def _file_to_node_ids_withtime(filename, node_to_id):
             time = [float(i) for i in time]
             seq = line.strip().split(':')[0].split(',')
             ix_seq = [node_to_id[x] for x in seq if x in node_to_id]
-            if len(ix_seq)>=2:
+#             if len(ix_seq) != len(time):
+#                 print("____NOT EQUAL FOUND_______",where)
+            if len(ix_seq)>=2 and len(ix_seq)==len(time):
                 cas_data.append(ix_seq)
                 time_data.append(time)
                 len_list.append(len(ix_seq)-1)
@@ -86,6 +91,7 @@ def to_nodes(seq, nodes):
     return list(map(lambda x: nodes[x], seq))
 
 def read_raw_data(data_path=None):
+#     print("---------------READING RAW DATA--------")
     train_path = data_path + '-train'
     valid_path = data_path +  '-val'
     test_path = data_path +  '-test'
@@ -103,10 +109,10 @@ def read_raw_data_withtime(data_path=None):
     test_path = data_path + '-time' + '-test'
 
     nodes, node_to_id = build_vocab(train_path)
-    train_data = _file_to_node_ids_withtime(train_path, node_to_id)
-    valid_data = _file_to_node_ids_withtime(valid_path, node_to_id)
-    test_data = _file_to_node_ids_withtime(test_path, node_to_id)
-
+    
+    train_data = _file_to_node_ids_withtime(train_path, node_to_id,where="train")
+    valid_data = _file_to_node_ids_withtime(valid_path, node_to_id,where="val")
+    test_data = _file_to_node_ids_withtime(test_path, node_to_id,where="test")
     return train_data, valid_data, test_data, nodes, node_to_id
 
 def batch_generator(train_data, batch_size, max_length):
@@ -168,6 +174,7 @@ def batch_generator(train_data, batch_size, max_length):
 
 
 def batch_generator_withtime(train_data, batch_size, max_length, n_ti, max_time, time_unit):
+    
     x = []
     y = []
     t = []
@@ -180,9 +187,8 @@ def batch_generator_withtime(train_data, batch_size, max_length, n_ti, max_time,
     train_steps = train_data[2]
 
     ti = max_time/n_ti
-
     batch_len = len(train_seq) // batch_size
-
+#     print("BATCH TIME",len(train_seq),ti,batch_len)
     for i in range(batch_len):
         batch_steps = np.array(train_steps[i * batch_size : (i + 1) * batch_size])
         max_batch_steps = batch_steps.max()
@@ -250,11 +256,13 @@ def batch_generator_withtime(train_data, batch_size, max_length, n_ti, max_time,
         ts.append(t)
         ss.append(batch_steps)
     # Enumerator over the batches.
+#     print(len(xs))
+#     print(len(xs),len(ys),len(ts),len(ss))
     return xs, ys, ts, ss
 
 def main():
     train_data, valid_data,  test_data, nodes, node_to_id = \
-        read_raw_data_withtime('data/meme-cascades')
+        read_raw_data_withtime('data/twitter-cascades')
 
     x_train, y_train, t_train, seq_length = batch_generator_withtime(test_data, 5, 5, 50, 100, 3600.)
     len1 = seq_length[0][0]

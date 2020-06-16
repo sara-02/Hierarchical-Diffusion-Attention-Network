@@ -6,19 +6,20 @@ from util import *
 from tqdm import tqdm
 import sys
 import argparse
+import json
 
 class Config(object):
     """Configuration of model"""
-    batch_size = 32
-    test_batch_size = 32
-    embedding_size = 32
-    hidden_size = 64
-    num_epochs = 200
+    batch_size = 16
+    test_batch_size = 16
+    embedding_size = 16
+    hidden_size = 32
+    num_epochs = 10
     max_length = 30
 
     n_time_interval = 40
     max_time = 120
-    time_unit = 3600  # 3600 for Meme；1 for Weibo and Twitter
+    time_unit = 1  # 3600 for Meme；1 for Weibo and Twitter
 
     l2_weight = 5e-5
     dropout = 0.8
@@ -26,7 +27,7 @@ class Config(object):
     freq = 5
     gpu_no = '0'
     model_name = 'hidan'
-    data_name = 'data/meme'
+    data_name = 'data/twitter'
     learning_rate = 0.001
     optimizer = 'adam'
     random_seed = 1402
@@ -47,13 +48,16 @@ class Input(object):
             self.inputs, self.targets, self.time_interval_index, self.seq_lenghth = batch_generator_withtime(data, self.test_batch_size, self.max_length, self.n_time_interval, self.max_time, self.time_unit)
         self.batch_num = len(self.inputs)
         self.cur_batch = 0
-
+        print("____INPUT_____")
+        print(self.batch_num, self.cur_batch)
     def next_batch(self):
         x = self.inputs[self.cur_batch]
         y = self.targets[self.cur_batch]
         sl = self.seq_lenghth[self.cur_batch]
         tii = self.time_interval_index[self.cur_batch]
         self.cur_batch = (self.cur_batch +1) % self.batch_num
+#         print("NEXT___BATCH")
+#         print(self.cur_batch, len(x),len(y),len(tii),len(sl))
         return x, y, tii, sl
 
 def args_setting(config):
@@ -91,11 +95,11 @@ def train():
         read_raw_data_withtime(data_name + '-cascades')
 
     config.num_nodes = len(nodes)
-
     train_size = train_data[-2]
     valid_size = valid_data[-2]
     test_size = test_data[-2]
-    print (train_size, valid_size, test_size)
+    print ("---SIZE---",train_size, valid_size, test_size)
+#     print("------TIME---", train_data[-1],valid_data[-1],test_data[-1])
 
     num_epochs = config.num_epochs
 
@@ -121,6 +125,7 @@ def train():
     best_macc10 = 0
     best_macc50 = 0
     best_macc100 = 0
+    test_scores_final=[]
 
     for epoch in range(num_epochs):
         epoch_cll = 0
@@ -142,6 +147,7 @@ def train():
         test_macc10 = 0
         test_macc50 = 0
         test_macc100 = 0
+        test_scores = []
 
         train_info = "Data: {0:>3}, Model: {1:>3}, Learning Rate: {2:>3.5f}, Embedding Size: {3:>3.0f}, Hidden Size: {4:>3.0f}"
         print(train_info.format(config.data_name, config.model_name, config.learning_rate, config.embedding_size, config.hidden_size))
@@ -156,7 +162,7 @@ def train():
         if (epoch+1)%config.freq==0:
 
             for j in tqdm(range(input_valid.batch_num)):
-                batch_cll, batch_ill, mrr, macc1, macc5, macc10, macc50, macc100 = model.test_batch(sess, input_valid.next_batch())
+                batch_cll, batch_ill, mrr, macc1, macc5, macc10, macc50, macc100, _ = model.test_batch(sess, input_valid.next_batch())
                 valid_cll += batch_cll
                 valid_ill += batch_ill
                 valid_mrr += mrr
@@ -167,7 +173,7 @@ def train():
                 valid_macc100 += macc100
 
             for k in tqdm(range(input_test.batch_num)):
-                batch_cll, batch_ill, mrr, macc1, macc5, macc10, macc50, macc100 = model.test_batch(sess, input_test.next_batch())
+                batch_cll, batch_ill, mrr, macc1, macc5, macc10, macc50, macc100, scores = model.test_batch(sess, input_test.next_batch(), test_batch_perf=True)
                 test_cll += batch_cll
                 test_ill += batch_ill
                 test_mrr += mrr
@@ -176,7 +182,9 @@ def train():
                 test_macc10 += macc10
                 test_macc50 += macc50
                 test_macc100 += macc100
-
+                test_scores.append(scores)
+            
+            test_scores_final.append(test_scores)    
 
             msg = "Epoch: {0:>1}, Valid CLL: {1:>6.5f}, Valid ILL: {2:>6.5f}, Test CLL: {3:>6.5f}, Test ILL: {4:>6.5f}"
             print(msg.format(epoch + 1, valid_cll/float(valid_size), valid_ill/float(valid_size), test_cll/float(test_size), test_ill/float(test_size)))
@@ -205,7 +213,7 @@ def train():
                 break
 
     with open(data_name + '_res.txt', 'a') as f:
-        f.write(config.model_name + '_' + config.mode + ':\n')
+        f.write(config.model_name + ':\n')
         f.write('MRR: '+ str(best_mrr/float(test_size)) + '\n')
         f.write('ACC1: '+ str(best_macc1/float(test_size)) + '\n')
         f.write('ACC5: '+ str(best_macc5/float(test_size)) + '\n')
@@ -213,7 +221,60 @@ def train():
         f.write('ACC50: '+ str(best_macc50/float(test_size)) + '\n')
         f.write('ACC100: '+ str(best_macc100/float(test_size)) + '\n')
     print('Finish training...')
-
+#     print(test_scores_final)
+#     print(len(test_scores_final), len(test_scores_final[0]))
+    scores_best = {}
+    scores_best["tau"]=0.0
+    scores_best["row"]=0.0
+    scores_best["hits@1"] = 0.0
+    scores_best["hits@5"] = 0.0
+    scores_best["hits@10"] = 0.0
+    scores_best["hits@20"] = 0.0
+    scores_best["hits@50"] = 0.0
+    scores_best["hits@100"] = 0.0
+    scores_best["map@1"] = 0.0
+    scores_best["map@5"] = 0.0
+    scores_best["map@10"] = 0.0
+    scores_best["map@20"] = 0.0
+    scores_best["map@50"] = 0.0
+    scores_best["map@100"] = 0.0
+    count = 0
+    for each_batch in test_scores_final[-1]:
+        scores_best["tau"]+=each_batch["tau"]
+        scores_best["row"]+=each_batch["row"]
+        scores_best["hits@1"]+=each_batch["map@1"]
+        scores_best["hits@5"]+=each_batch["map@5"]
+        scores_best["hits@10"]+=each_batch["map@10"]
+        scores_best["hits@20"]+=each_batch["map@20"]
+        scores_best["hits@50"]+=each_batch["map@50"]
+        scores_best["hits@100"]+=each_batch["map@100"]
+        scores_best["map@1"]+=each_batch["map@1"]
+        scores_best["map@5"]+=each_batch["map@5"]
+        scores_best["map@10"]+=each_batch["map@10"]
+        scores_best["map@20"]+=each_batch["map@20"]
+        scores_best["map@50"]+=each_batch["map@50"]
+        scores_best["map@100"]+=each_batch["map@100"]
+        count+=1
+        
+    for each_eval in scores_best:
+        scores_best[each_eval] = scores_best[each_eval]/count
+    scores_best["MRR"] = best_mrr/float(test_size)
+    scores_best["ACC1"] = best_macc1/float(test_size)
+    scores_best["ACC5"] = best_macc5/float(test_size)
+    scores_best["ACC10"] = best_macc10/float(test_size)
+    scores_best["ACC50"] = best_macc50/float(test_size)
+    scores_best["ACC100"] = best_macc100/float(test_size)
+    
+    scores_best["batch_size"] = config.batch_size
+    scores_best["test_batch_size"] = config.test_batch_size
+    scores_best["embedding_size"] = config.embedding_size
+    scores_best["hidden_size"] = config.hidden_size
+    scores_best["num_epochs"] = config.num_epochs
+    scores_best["freq"] = config.freq
+    
+    print(scores_best)
+    with open("final_results.json","w") as f:
+         json.dump(scores_best,f, indent=True)
     sess.close()
 
 if __name__ == '__main__':

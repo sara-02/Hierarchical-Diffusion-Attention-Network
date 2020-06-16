@@ -81,7 +81,7 @@ class Model(object):
 
             self.num_cas = tf.placeholder(tf.float32)
 
-            with tf.device("/cpu:0"):
+            with tf.device("/gpu:0"):
                 self.embedding = tf.get_variable(
                     "embedding", [self.num_nodes,
                         self.embedding_size], dtype=tf.float32)
@@ -117,7 +117,7 @@ class Model(object):
         batch_nll = np.sum(nll)
         return batch_nll
 
-    def test_batch(self, sess, batch_test):
+    def test_batch(self, sess, batch_test, test_batch_perf=False):
         cas, next_user, time_interval_index, seq_len = batch_test
         feed = {self.cas: cas,
                 self.labels: next_user,
@@ -125,8 +125,12 @@ class Model(object):
                 self.dropout: 1.0
                }
         logits, nll = sess.run([self.logits, self.nll], feed_dict = feed)
+        print("-----OUTPUT FORMAT-----")
+#         print(len(logits), logits.shape)
+#         print(len(next_user))
+#         print(len(seq_len))
         # batch_rr = mrr_cal(logits, next_user, seq_len)
-        mrr, macc1, macc5, macc10, macc50, macc100 = rank_eval(logits, next_user, seq_len)
+        mrr, macc1, macc5, macc10, macc50, macc100, scores = rank_eval(logits, next_user, seq_len,test_batch_perf)
         batch_cll = np.sum(nll)
         batch_ill = ill_cal(nll, seq_len)
-        return batch_cll, batch_ill, mrr, macc1, macc5, macc10, macc50, macc100
+        return batch_cll, batch_ill, mrr, macc1, macc5, macc10, macc50, macc100, scores
